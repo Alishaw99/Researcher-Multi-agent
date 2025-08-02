@@ -1,16 +1,17 @@
 import re
+import streamlit as st
 
+from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
+from langgraph_supervisor import create_supervisor
+
 
 def clean_text(text: str):
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     return cleaned_text.strip()
 
-
-
-model = ChatOllama(model="qwen3:8b")
-
+model = ChatOllama(model="qwen3:8b", base_url="http://127.0.0.1:11434", temperature=0.7)
 
 query_refiner_prompt = (
     "You are a query refiner agent.\n\n"
@@ -33,3 +34,51 @@ supervisor_prompt = (
     "- Use the Research Agent to retrieve up-to-date information from the web\n"
     "- Respond ONLY with the final response, do NOT include any other text."
 )
+
+query_refiner_agent = create_react_agent(
+    model=model,
+    tools=[],
+    prompt=query_refiner_prompt,
+    name="query_refiner_agent"
+)
+research_agent = create_react_agent(
+    model=model,
+    tools=[DuckDuckGoSearchRun()],
+    prompt=research_prompt,
+    name="research_agent"
+)
+supervisor_agent = create_supervisor(
+    model=model,
+    agents=[query_refiner_agent, research_agent],
+    prompt=supervisor_prompt
+)
+
+app = supervisor_agent.compile()
+
+query = st.text_input("Enter your search query:")
+
+if query:
+    result = app.invoke({
+        "messages": [
+            {
+                "role": "user",
+                "content": query
+            }
+        ]
+    })
+
+    for message in result["messages"]:
+        print(message.pretty_print())
+        print()
+
+    research_result = clean_text(result["messages"][-1].content)
+    st.markdown(research_result)
+
+
+
+
+
+
+
+
+
